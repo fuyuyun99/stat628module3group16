@@ -1,0 +1,360 @@
+---
+title: "Untitled"
+author: "王明宇"
+date: '2022-11-04'
+output: html_document
+---
+read jason
+```{r}
+library(ndjson)
+business <- stream_in("/Users/fuyun/Desktop/stat628/module 3/yelp_dataset_2022/business.json")
+review <- stream_in("/Users/fuyun/Desktop/stat628/module 3/yelp_dataset_2022/review.json")
+head(data)
+```
+
+```{r}
+library(tokenizers)
+library(stopwords)
+library(textstem)
+library(ggplot2)
+library(syuzhet)
+```
+
+# data clean
+```{r}
+movie.review<-review
+for (i in 1:nrow(movie.review)) {
+  if(grepl("movie",movie.review$text[[i]])==FALSE){
+    movie.review$text[[i]]<-0
+  }
+}
+movie.review<-subset(movie.review,text!=0)
+write.csv(movie.review,"finaldata.csv")
+```
+
+```{r}
+#stemming
+#words<-tokenize_word_stems(review$text,stopwords = stopwords::stopwords("en"))
+#word<-c()
+#for (i in 1:length(words)) {
+ # word<-c(word,words[[i]])
+#}
+#fre<-sort(table(word),decreasing = T)
+
+#no stemming(that's it!)
+Words<-tokenize_words(movie.review$text,stopwords = stopwords::stopwords("en"))
+Word<-c()
+for (i in 1:length(Words)) {
+  Word<-c(Word,Words[[i]])
+}
+Fre<-sort(table(Word),decreasing = T)
+```
+
+# data input
+```{r}
+data<-read.csv("finaldata.csv")
+business_cinema<-read.csv("business_cinema.csv")
+load("words.Rdata")
+population<-table(data$stars)
+hist(data$stars)
+```
+
+# for imax
+```{r}
+imax.review<-data
+for (i in 1:nrow(imax.review)) {
+  if("imax" %in% words[[i]]==FALSE){
+    imax.review$text[i]<-0
+  }
+}
+imax.review<-subset(imax.review,text!=0)
+hist(imax.review$stars)
+
+x<-table(imax.review$stars)
+chisq.test(x,p=population/sum(population))
+```
+
+#for all data
+```{r}
+SpecificWords<-read.table("specifiedwords.txt")
+pvalue<-data.frame(words=SpecificWords,pvalue=rep(0,nrow(SpecificWords)))
+for (i in 1:nrow(SpecificWords)) {
+  newdata<-data
+  for (j in 1:nrow(newdata)) {
+    if(SpecificWords[i,] %in% words[[j]]==FALSE){
+      newdata$text[j]<-0
+    }
+  }
+  newdata<-subset(newdata,text!=0)
+  pvalue[i,2]<-chisq.test(table(newdata$stars),p=population/sum(population))$p.value
+  hist(newdata$stars,xlab=pvalue$V1[i],main = pvalue[i,2])
+}
+```
+
+
+# sentiment score
+```{r}
+#split the reviews by dot
+data_sentence<-data.frame()
+for (i in 1:nrow(data)) {
+  tex<-unlist(strsplit(data[i,]$text, "\\."))
+  n<-length(tex)
+  for (j in 1:n) {
+    if(nchar(tex[j])>2){
+      data_sentence<-rbind(data_sentence,list(review_id=data[i,]$review_id,user_id=data[i,]$user_id,business_id=data[i,]$business_id,date=data[i,]$date,stars=data[i,]$stars,score=0,sentence=tex[j]))
+    }
+  }
+}
+
+#calculate sentiment score
+syuzhet_vector <- get_sentiment(data_sentence$sentence, method="syuzhet")
+data_sentence$score <- syuzhet_vector
+save(data_sentence,file = "data_sentence.RData")
+write.csv(x=data_sentence,file="sentence_score")
+```
+based on sentence score
+
+#three parts
+```{r}
+data_sentence<-read.csv("/Users/fuyun/Desktop/stat628/module 3/sentence_score")
+#words
+movie<-c("price","expensive","cheap","imax")
+ambiance<-c("dirty","clean","crowd","park","service","bathroom")
+food<-c("food","popcorn","snack","drink","water","beer","soda")
+#for any given business_id, we will show the average sentiment score of every words in those three parts above by barplots
+#businessdata<-subset(data_sentence,business_id==businessid)#the data of the given ID
+# rownames(businessdata)<-NULL
+# for movie part
+# movie_score<-rep(0,length(movie))
+# names(movie_score)<-movie
+# for (i in 1:length(movie)) {
+#   movie_score[i]<-mean(businessdata[grep(movie[i],businessdata$sentence),6])
+# }
+# movie_score
+# ##for ambiance part
+# ambiance_score<-rep(0,length(ambiance))
+# names(ambiance_score)<-ambiance
+# for (i in 1:length(ambiance)) {
+#   ambiance_score[i]<-mean(businessdata[grep(ambiance[i],businessdata$sentence),6])
+# }
+# ambiance_score
+# ##for food part
+# food_score<-rep(0,length(food))
+# names(food_score)<-food
+# for (i in 1:length(food)) {
+#   food_score[i]<-mean(businessdata[grep(food[i],businessdata$sentence),6])
+# }
+# food_score
+```
+#for overall status
+```{r}
+overall_detail<-rep(0,length(movie)+length(ambiance)+length(food))
+names(overall_detail)<-c(movie,ambiance,food)
+overall_main<-rep(0,3)
+names(overall_main)<-c("movie","ambiance","food")
+movie_weight<-table(unlist(words))[movie]/sum(table(unlist(words))[movie])
+names(movie_weight)<-movie
+ambiance_weight<-table(unlist(words))[ambiance]/sum(table(unlist(words))[ambiance])
+names(ambiance_weight)<-ambiance
+food_weight<-table(unlist(words))[food]/sum(table(unlist(words))[food])
+names(food_weight)<-food
+#score of every cinema
+business<-data.frame(business_cinema$business_id,matrix(0,ncol = length(movie)+length(ambiance)+length(food),nrow = length(business_cinema$business_id)))
+colnames(business)<-c("business_id",movie,ambiance,food)#business contain id and score
+for(j in 1:nrow(business)){
+    business[j,2:ncol(business)]<-business_score(business$business_id[j],colnames(business)[2:ncol(business)])
+}
+
+#overall mean of every word
+for(i in 1:length(overall_detail)){
+  overall_detail[i]<-mean(business[,names(overall_detail)[i]],na.rm = TRUE)
+}
+#main part overall mean
+overall_main[1]<-overall_detail[movie]%*%movie_weight
+overall_main[2]<-overall_detail[ambiance]%*%ambiance_weight
+overall_main[3]<-overall_detail[food]%*%food_weight
+save(business,file="business.Rdata")
+```
+
+
+```{r}
+#a function
+#input is businessid, c("","","",""), output is a sentiment score vector with c("","","","")
+business_score<-function(businessid,words){
+  businessdata<-subset(data_sentence,business_id==businessid)
+  score<-rep(0,length(words))
+  for (i in 1:length(words)) {
+    if(length(grep(words[i],businessdata$sentence))>0){
+      score[i]<-mean(businessdata[grep(words[i],businessdata$sentence),6])
+    } else {
+      score[i]<-NA
+    }
+  }
+  return(score)
+}
+```
+# choose attributes of binary value
+```{r}
+pvalue<-rep(0,7)
+names(pvalue)<-c("attributes.BusinessAcceptsCreditCards","attributes.BikeParking","attributes.DogsAllowed","attributes.HasTV","attributes.GoodForKids","attributes.HappyHour","attributes.OutdoorSeating")
+fit1<-aov(stars~attributes.BusinessAcceptsCreditCards,data=business_cinema)
+pvalue[1]<-summary(fit1)[[1]]$Pr[1]
+fit2<-aov(stars~attributes.BikeParking,data=business_cinema)
+pvalue[2]<-summary(fit2)[[1]]$Pr[1]
+fit3<-aov(stars~attributes.DogsAllowed,data=business_cinema)
+pvalue[3]<-summary(fit3)[[1]]$Pr[1]
+fit4<-aov(stars~attributes.HasTV,data=business_cinema)
+pvalue[4]<-summary(fit4)[[1]]$Pr[1]
+fit5<-aov(stars~attributes.GoodForKids,data=business_cinema)
+pvalue[5]<-summary(fit5)[[1]]$Pr[1]
+fit6<-aov(stars~attributes.HappyHour,data=business_cinema)
+pvalue[6]<-summary(fit6)[[1]]$Pr[1]
+fit7<-aov(stars~attributes.OutdoorSeating,data=business_cinema)
+pvalue[7]<-summary(fit7)[[1]]$Pr[1]
+#a dataframe containing the mean of T and F and the pvalue
+attribute<-data.frame(mean.T=0,mean.F=0,P=pvalue)
+attribute$mean.T[1]<-mean(business_cinema[business_cinema$attributes.BusinessAcceptsCreditCards=="True","stars"],na.rm = T)
+attribute$mean.F[1]<-mean(business_cinema[business_cinema$attributes.BusinessAcceptsCreditCards=="False","stars"],na.rm = T)
+attribute$mean.T[2]<-mean(business_cinema[business_cinema$attributes.BikeParking=="True","stars"],na.rm = T)
+attribute$mean.F[2]<-mean(business_cinema[business_cinema$attributes.BikeParking=="False","stars"],na.rm = T)
+attribute$mean.T[3]<-mean(business_cinema[business_cinema$attributes.DogsAllowed=="True","stars"],na.rm = T)
+attribute$mean.F[3]<-mean(business_cinema[business_cinema$attributes.DogsAllowed=="False","stars"],na.rm = T)
+attribute$mean.T[4]<-mean(business_cinema[business_cinema$attributes.HasTV=="True","stars"],na.rm = T)
+attribute$mean.F[4]<-mean(business_cinema[business_cinema$attributes.HasTV=="False","stars"],na.rm = T)
+attribute$mean.T[5]<-mean(business_cinema[business_cinema$attributes.GoodForKids=="True","stars"],na.rm = T)
+attribute$mean.F[5]<-mean(business_cinema[business_cinema$attributes.GoodForKids=="False","stars"],na.rm = T)
+
+attribute$mean.T[6]<-mean(business_cinema[business_cinema$attributes.HappyHour=="True","stars"],na.rm = T)
+attribute$mean.F[6]<-mean(business_cinema[business_cinema$attributes.HappyHour=="False","stars"],na.rm = T)
+attribute$mean.T[7]<-mean(business_cinema[business_cinema$attributes.OutdoorSeating=="True","stars"],na.rm = T)
+attribute$mean.F[7]<-mean(business_cinema[business_cinema$attributes.OutdoorSeating=="False","stars"],na.rm = T)
+```
+# make 4 plots
+```{r}
+movie_plot<-function(businessid){
+  x<-unlist(c(business[business$business_id==businessid,movie]))
+  x<-subset(x,is.na(x)==F)
+  return(barplot(x, col = rainbow(length(x)), horiz = T, xlab = "movie related score"))
+}
+
+ambiance_plot<-function(businessid){
+  x<-unlist(c(business[business$business_id==businessid,ambiance]))
+  x<-subset(x,is.na(x)==F)
+  return(barplot(x, col = rainbow(length(x)), horiz = T, xlab = "ambiance related score"))
+}
+
+food_plot<-function(businessid){
+  x<-unlist(c(business[business$business_id==businessid,food]))
+  x<-subset(x,is.na(x)==F)
+  return(barplot(x, col = rainbow(length(x)), horiz = T, xlab = "food related score"))
+}
+```
+
+
+```{r}
+overall_plot<-function(businessid){
+  #movie
+  x_movie<-unlist(c(business[business$business_id==businessid,movie]))
+  x_movie<-subset(x_movie,is.na(x_movie)==F)
+  weight_movie<-table(unlist(words))[names(x_movie)]/sum(table(unlist(words))[names(x_movie)])
+  movie_score<-x_movie%*%weight_movie
+  #ambiance
+  x_ambiance<-unlist(c(business[business$business_id==businessid,ambiance]))
+  x_ambiance<-subset(x_ambiance,is.na(x_ambiance)==F)
+  weight_ambiance<-table(unlist(words))[names(x_ambiance)]/sum(table(unlist(words))[names(x_ambiance)])
+  ambiance_score<-x_ambiance%*%weight_ambiance
+  #food
+  x_food<-unlist(c(business[business$business_id==businessid,food]))
+  x_food<-subset(x_food,is.na(x_food)==F)
+  weight_food<-table(unlist(words))[names(x_food)]/sum(table(unlist(words))[names(x_food)])
+  food_score<-x_food%*%weight_food
+  
+  x<-c(movie_score,ambiance_score,food_score)
+  names(x)<-c("movie","ambiance","food")
+  return(barplot(x, col = rainbow(length(x)), ylab = "overall score",ylim=c(min(x,0),max(x,overall_main)+0.3)))
+}
+points(x=c(0.7,1.9,3.1),y=overall_main,pch=19)
+legend("topright", pch=19, legend="overall score", horiz=TRUE)
+```
+# making recommodations
+```{r}
+corpus<-data.frame(words=c(movie,ambiance,food,"bikeparking","OutdoorSeating","GoodForKids"),positive_com=rep("",length(c(movie,ambiance,food))+3),negative_com=rep("",length(c(movie,ambiance,food))+3))
+corpus[corpus$words=="price",2]<-"Price is your one of your main competitiveness."
+corpus[corpus$words=="price",3]<-"Maybe you need to consider lowering the price, or at least making the service worthy of that price."
+corpus[corpus$words=="imax",2]<-"Your imax screen is very satisfying to the customers."
+corpus[corpus$words=="imax",3]<-"Having imax screens is cool but maybe they need some maintenance."
+corpus[corpus$words=="clean",2]<-"Your cinema is very clean, please keep it up!"
+corpus[corpus$words=="clean",3]<-"Please put more energy into maintaining hygiene."
+corpus[corpus$words=="crowd",2]<-"Your customers are always many, congrats!"
+corpus[corpus$words=="crowd",3]<-"Sometimes the cinema gets too crowded, try to expand the space."
+corpus[corpus$words=="park",2]<-"The customer's parking experience is very good."
+corpus[corpus$words=="park",3]<-"Please consider building or expanding the parking lot."
+corpus[corpus$words=="service",2]<-"Moviegoers enjoy your friendly service."
+corpus[corpus$words=="service",3]<-"You should consider hiring more servants."
+corpus[corpus$words=="bathroom",2]<-"Your bathroom is getting good reviews."
+corpus[corpus$words=="bathroom",3]<-"Please clean the bathroom more often."
+corpus[corpus$words=="food",2]<-"Dining here is a pleasure."
+corpus[corpus$words=="food",3]<-"Food taste and ordering procedures need to be optimized."
+corpus[corpus$words=="popcorn",2]<-"Popcorn is great!"
+corpus[corpus$words=="popcorn",3]<-"Popcorn is not crisp enough, please don't sell popcorn that's been cooking too long."
+corpus[corpus$words=="snack",2]<-"Snacks taste good!"
+corpus[corpus$words=="snack",3]<-"Please offer better snacks."
+corpus[corpus$words=="drink",2]<-"Customers love your drinks."
+corpus[corpus$words=="drink",3]<-"Reduce customer wait time for drinks."
+corpus[corpus$words=="bikeparking",2]<-"The area for bicycle parking is sufficient and customers are satisfied with it."
+corpus[corpus$words=="bikeparking",3]<-"Riding a bike is a convenient and cheap way for most perople to reach cinemas, we propose to build more bike parking spaces."
+corpus[corpus$words=="OutdoorSeating",2]<-"Outdoor seats is adequate."
+corpus[corpus$words=="OutdoorSeating",3]<-"People love outdoor seats while waiting for the movies, it is recommended to build more outdoor seats."
+corpus[corpus$words=="GoodForKids",2]<-"The cinema is not good for kids, which helps you get higher ratings."
+corpus[corpus$words=="GoodForKids",3]<-"The cinema is good for kids, but many moviegoers are complaining about the screaming kids and their uncontrollable actions like walking around the seats or touching the screen."
+corpus<-corpus[c(-2,-3,-5,-15,-16,-17),]
+save(corpus,file="corpus.Rdata")
+```
+
+
+```{r}
+# recommendation generating function with input: ID ,output recommendation text
+recommendation<-function(businessid){
+  x<-c(t(business[business$business_id==businessid,c(movie,ambiance,food)]))
+  names(x)<-c(movie,ambiance,food)
+  x<-subset(x,is.na(x)==F)
+  position<-match(names(x),corpus[,1])
+  if(length(position)==0){
+    return("\nPrice is your one of your main competitiveness.\nYour customers are always many, congrats!\nYou should consider hiring more servants.\nDining here is a pleasure.\nPopcorn is great!\nSnacks taste good!\nCustomers love your drinks.\nRiding a bike is a convenient and cheap way for most perople to reach cinemas, we propose to build more bike parking spaces.\nPeople love outdoor seats while waiting for the movies, it is recommended to build more outdoor seats.\nThe cinema is not good for kids, which helps you get higher ratings.")
+  } else {
+    text<-""
+  for (i in 1:length(position)) {
+    if(is.na(position[i])==F){
+      if(x[i]>overall_detail[names(x)[i]]){
+        text<-paste(text,corpus[position[i],2],sep = "\n")
+      } else {
+        text<-paste(text,corpus[position[i],3],sep = "\n")
+      }
+    }
+  }
+  if(is.na(business_cinema[business_cinema$business_id==businessid,"attributes.BikeParking"])==F){
+    if(business_cinema[business_cinema$business_id==businessid,"attributes.BikeParking"]==T){
+      text<-paste(text,corpus[12,2],sep = "\n")
+    } else {
+      text<-paste(text,corpus[12,3],sep = "\n")
+    }
+  } 
+  if(is.na(business_cinema[business_cinema$business_id==businessid,"attributes.OutdoorSeating"])==F){
+    if(business_cinema[business_cinema$business_id==businessid,"attributes.OutdoorSeating"]==T){
+      text<-paste(text,corpus[13,2],sep = "\n")
+    } else {
+      text<-paste(text,corpus[13,3],sep = "\n")
+    }
+  } 
+  if(is.na(business_cinema[business_cinema$business_id==businessid,"attributes.GoodForKids"])==F){
+    if(business_cinema[business_cinema$business_id==businessid,"attributes.GoodForKids"]==T){
+      text<-paste(text,corpus[14,3],sep = "\n")
+    } else {
+      text<-paste(text,corpus[14,2],sep = "\n")
+    }
+  } 
+  return(text)
+  }
+}
+```
+
